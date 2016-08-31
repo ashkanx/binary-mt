@@ -14229,7 +14229,7 @@ null!==this.trigger&&("undefined"!==typeof a&&c(this.trigger).addClass("disabled
 
 ;/*! jQuery UI - v1.11.0 - 2014-08-11
 * http://jqueryui.com
-* Includes: core.js, widget.js, mouse.js, draggable.js, datepicker.js, tabs.js
+* Includes: core.js, widget.js, mouse.js, draggable.js, datepicker.js
 * Copyright 2014 jQuery Foundation and other contributors; Licensed MIT */
 
 (function( factory ) {
@@ -18303,858 +18303,6 @@ $.datepicker.version = "1.11.0";
 
 var datepicker = $.datepicker;
 
-
-/*!
- * jQuery UI Tabs 1.11.0
- * http://jqueryui.com
- *
- * Copyright 2014 jQuery Foundation and other contributors
- * Released under the MIT license.
- * http://jquery.org/license
- *
- * http://api.jqueryui.com/tabs/
- */
-
-
-var tabs = $.widget( "ui.tabs", {
-	version: "1.11.0",
-	delay: 300,
-	options: {
-		active: null,
-		collapsible: false,
-		event: "click",
-		heightStyle: "content",
-		hide: null,
-		show: null,
-
-		// callbacks
-		activate: null,
-		beforeActivate: null,
-		beforeLoad: null,
-		load: null
-	},
-
-	_isLocal: (function() {
-		var rhash = /#.*$/;
-
-		return function( anchor ) {
-			var anchorUrl, locationUrl;
-
-			// support: IE7
-			// IE7 doesn't normalize the href property when set via script (#9317)
-			anchor = anchor.cloneNode( false );
-
-			anchorUrl = anchor.href.replace( rhash, "" );
-			locationUrl = location.href.replace( rhash, "" );
-
-			// decoding may throw an error if the URL isn't UTF-8 (#9518)
-			try {
-				anchorUrl = decodeURIComponent( anchorUrl );
-			} catch ( error ) {}
-			try {
-				locationUrl = decodeURIComponent( locationUrl );
-			} catch ( error ) {}
-
-			return anchor.hash.length > 1 && anchorUrl === locationUrl;
-		};
-	})(),
-
-	_create: function() {
-		var that = this,
-			options = this.options;
-
-		this.running = false;
-
-		this.element
-			.addClass( "ui-tabs ui-widget ui-widget-content ui-corner-all" )
-			.toggleClass( "ui-tabs-collapsible", options.collapsible )
-			// Prevent users from focusing disabled tabs via click
-			.delegate( ".ui-tabs-nav > li", "mousedown" + this.eventNamespace, function( event ) {
-				if ( $( this ).is( ".ui-state-disabled" ) ) {
-					event.preventDefault();
-				}
-			})
-			// support: IE <9
-			// Preventing the default action in mousedown doesn't prevent IE
-			// from focusing the element, so if the anchor gets focused, blur.
-			// We don't have to worry about focusing the previously focused
-			// element since clicking on a non-focusable element should focus
-			// the body anyway.
-			.delegate( ".ui-tabs-anchor", "focus" + this.eventNamespace, function() {
-				if ( $( this ).closest( "li" ).is( ".ui-state-disabled" ) ) {
-					this.blur();
-				}
-			});
-
-		this._processTabs();
-		options.active = this._initialActive();
-
-		// Take disabling tabs via class attribute from HTML
-		// into account and update option properly.
-		if ( $.isArray( options.disabled ) ) {
-			options.disabled = $.unique( options.disabled.concat(
-				$.map( this.tabs.filter( ".ui-state-disabled" ), function( li ) {
-					return that.tabs.index( li );
-				})
-			) ).sort();
-		}
-
-		// check for length avoids error when initializing empty list
-		if ( this.options.active !== false && this.anchors.length ) {
-			this.active = this._findActive( options.active );
-		} else {
-			this.active = $();
-		}
-
-		this._refresh();
-
-		if ( this.active.length ) {
-			this.load( options.active );
-		}
-	},
-
-	_initialActive: function() {
-		var active = this.options.active,
-			collapsible = this.options.collapsible,
-			locationHash = location.hash.substring( 1 );
-
-		if ( active === null ) {
-			// check the fragment identifier in the URL
-			if ( locationHash ) {
-				this.tabs.each(function( i, tab ) {
-					if ( $( tab ).attr( "aria-controls" ) === locationHash ) {
-						active = i;
-						return false;
-					}
-				});
-			}
-
-			// check for a tab marked active via a class
-			if ( active === null ) {
-				active = this.tabs.index( this.tabs.filter( ".ui-tabs-active" ) );
-			}
-
-			// no active tab, set to false
-			if ( active === null || active === -1 ) {
-				active = this.tabs.length ? 0 : false;
-			}
-		}
-
-		// handle numbers: negative, out of range
-		if ( active !== false ) {
-			active = this.tabs.index( this.tabs.eq( active ) );
-			if ( active === -1 ) {
-				active = collapsible ? false : 0;
-			}
-		}
-
-		// don't allow collapsible: false and active: false
-		if ( !collapsible && active === false && this.anchors.length ) {
-			active = 0;
-		}
-
-		return active;
-	},
-
-	_getCreateEventData: function() {
-		return {
-			tab: this.active,
-			panel: !this.active.length ? $() : this._getPanelForTab( this.active )
-		};
-	},
-
-	_tabKeydown: function( event ) {
-		var focusedTab = $( this.document[0].activeElement ).closest( "li" ),
-			selectedIndex = this.tabs.index( focusedTab ),
-			goingForward = true;
-
-		if ( this._handlePageNav( event ) ) {
-			return;
-		}
-
-		switch ( event.keyCode ) {
-			case $.ui.keyCode.RIGHT:
-			case $.ui.keyCode.DOWN:
-				selectedIndex++;
-				break;
-			case $.ui.keyCode.UP:
-			case $.ui.keyCode.LEFT:
-				goingForward = false;
-				selectedIndex--;
-				break;
-			case $.ui.keyCode.END:
-				selectedIndex = this.anchors.length - 1;
-				break;
-			case $.ui.keyCode.HOME:
-				selectedIndex = 0;
-				break;
-			case $.ui.keyCode.SPACE:
-				// Activate only, no collapsing
-				event.preventDefault();
-				clearTimeout( this.activating );
-				this._activate( selectedIndex );
-				return;
-			case $.ui.keyCode.ENTER:
-				// Toggle (cancel delayed activation, allow collapsing)
-				event.preventDefault();
-				clearTimeout( this.activating );
-				// Determine if we should collapse or activate
-				this._activate( selectedIndex === this.options.active ? false : selectedIndex );
-				return;
-			default:
-				return;
-		}
-
-		// Focus the appropriate tab, based on which key was pressed
-		event.preventDefault();
-		clearTimeout( this.activating );
-		selectedIndex = this._focusNextTab( selectedIndex, goingForward );
-
-		// Navigating with control key will prevent automatic activation
-		if ( !event.ctrlKey ) {
-			// Update aria-selected immediately so that AT think the tab is already selected.
-			// Otherwise AT may confuse the user by stating that they need to activate the tab,
-			// but the tab will already be activated by the time the announcement finishes.
-			focusedTab.attr( "aria-selected", "false" );
-			this.tabs.eq( selectedIndex ).attr( "aria-selected", "true" );
-
-			this.activating = this._delay(function() {
-				this.option( "active", selectedIndex );
-			}, this.delay );
-		}
-	},
-
-	_panelKeydown: function( event ) {
-		if ( this._handlePageNav( event ) ) {
-			return;
-		}
-
-		// Ctrl+up moves focus to the current tab
-		if ( event.ctrlKey && event.keyCode === $.ui.keyCode.UP ) {
-			event.preventDefault();
-			this.active.focus();
-		}
-	},
-
-	// Alt+page up/down moves focus to the previous/next tab (and activates)
-	_handlePageNav: function( event ) {
-		if ( event.altKey && event.keyCode === $.ui.keyCode.PAGE_UP ) {
-			this._activate( this._focusNextTab( this.options.active - 1, false ) );
-			return true;
-		}
-		if ( event.altKey && event.keyCode === $.ui.keyCode.PAGE_DOWN ) {
-			this._activate( this._focusNextTab( this.options.active + 1, true ) );
-			return true;
-		}
-	},
-
-	_findNextTab: function( index, goingForward ) {
-		var lastTabIndex = this.tabs.length - 1;
-
-		function constrain() {
-			if ( index > lastTabIndex ) {
-				index = 0;
-			}
-			if ( index < 0 ) {
-				index = lastTabIndex;
-			}
-			return index;
-		}
-
-		while ( $.inArray( constrain(), this.options.disabled ) !== -1 ) {
-			index = goingForward ? index + 1 : index - 1;
-		}
-
-		return index;
-	},
-
-	_focusNextTab: function( index, goingForward ) {
-		index = this._findNextTab( index, goingForward );
-		this.tabs.eq( index ).focus();
-		return index;
-	},
-
-	_setOption: function( key, value ) {
-		if ( key === "active" ) {
-			// _activate() will handle invalid values and update this.options
-			this._activate( value );
-			return;
-		}
-
-		if ( key === "disabled" ) {
-			// don't use the widget factory's disabled handling
-			this._setupDisabled( value );
-			return;
-		}
-
-		this._super( key, value);
-
-		if ( key === "collapsible" ) {
-			this.element.toggleClass( "ui-tabs-collapsible", value );
-			// Setting collapsible: false while collapsed; open first panel
-			if ( !value && this.options.active === false ) {
-				this._activate( 0 );
-			}
-		}
-
-		if ( key === "event" ) {
-			this._setupEvents( value );
-		}
-
-		if ( key === "heightStyle" ) {
-			this._setupHeightStyle( value );
-		}
-	},
-
-	_sanitizeSelector: function( hash ) {
-		return hash ? hash.replace( /[!"$%&'()*+,.\/:;<=>?@\[\]\^`{|}~]/g, "\\$&" ) : "";
-	},
-
-	refresh: function() {
-		var options = this.options,
-			lis = this.tablist.children( ":has(a[href])" );
-
-		// get disabled tabs from class attribute from HTML
-		// this will get converted to a boolean if needed in _refresh()
-		options.disabled = $.map( lis.filter( ".ui-state-disabled" ), function( tab ) {
-			return lis.index( tab );
-		});
-
-		this._processTabs();
-
-		// was collapsed or no tabs
-		if ( options.active === false || !this.anchors.length ) {
-			options.active = false;
-			this.active = $();
-		// was active, but active tab is gone
-		} else if ( this.active.length && !$.contains( this.tablist[ 0 ], this.active[ 0 ] ) ) {
-			// all remaining tabs are disabled
-			if ( this.tabs.length === options.disabled.length ) {
-				options.active = false;
-				this.active = $();
-			// activate previous tab
-			} else {
-				this._activate( this._findNextTab( Math.max( 0, options.active - 1 ), false ) );
-			}
-		// was active, active tab still exists
-		} else {
-			// make sure active index is correct
-			options.active = this.tabs.index( this.active );
-		}
-
-		this._refresh();
-	},
-
-	_refresh: function() {
-		this._setupDisabled( this.options.disabled );
-		this._setupEvents( this.options.event );
-		this._setupHeightStyle( this.options.heightStyle );
-
-		this.tabs.not( this.active ).attr({
-			"aria-selected": "false",
-			"aria-expanded": "false",
-			tabIndex: -1
-		});
-		this.panels.not( this._getPanelForTab( this.active ) )
-			.hide()
-			.attr({
-				"aria-hidden": "true"
-			});
-
-		// Make sure one tab is in the tab order
-		if ( !this.active.length ) {
-			this.tabs.eq( 0 ).attr( "tabIndex", 0 );
-		} else {
-			this.active
-				.addClass( "ui-tabs-active ui-state-active" )
-				.attr({
-					"aria-selected": "true",
-					"aria-expanded": "true",
-					tabIndex: 0
-				});
-			this._getPanelForTab( this.active )
-				.show()
-				.attr({
-					"aria-hidden": "false"
-				});
-		}
-	},
-
-	_processTabs: function() {
-		var that = this;
-
-		this.tablist = this._getList()
-			.addClass( "ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all" )
-			.attr( "role", "tablist" );
-
-		this.tabs = this.tablist.find( "> li:has(a[href])" )
-			.addClass( "ui-state-default ui-corner-top" )
-			.attr({
-				role: "tab",
-				tabIndex: -1
-			});
-
-		this.anchors = this.tabs.map(function() {
-				return $( "a", this )[ 0 ];
-			})
-			.addClass( "ui-tabs-anchor" )
-			.attr({
-				role: "presentation",
-				tabIndex: -1
-			});
-
-		this.panels = $();
-
-		this.anchors.each(function( i, anchor ) {
-			var selector, panel, panelId,
-				anchorId = $( anchor ).uniqueId().attr( "id" ),
-				tab = $( anchor ).closest( "li" ),
-				originalAriaControls = tab.attr( "aria-controls" );
-
-			// inline tab
-			if ( that._isLocal( anchor ) ) {
-				selector = anchor.hash;
-				panelId = selector.substring( 1 );
-				panel = that.element.find( that._sanitizeSelector( selector ) );
-			// remote tab
-			} else {
-				// If the tab doesn't already have aria-controls,
-				// generate an id by using a throw-away element
-				panelId = tab.attr( "aria-controls" ) || $( {} ).uniqueId()[ 0 ].id;
-				selector = "#" + panelId;
-				panel = that.element.find( selector );
-				if ( !panel.length ) {
-					panel = that._createPanel( panelId );
-					panel.insertAfter( that.panels[ i - 1 ] || that.tablist );
-				}
-				panel.attr( "aria-live", "polite" );
-			}
-
-			if ( panel.length) {
-				that.panels = that.panels.add( panel );
-			}
-			if ( originalAriaControls ) {
-				tab.data( "ui-tabs-aria-controls", originalAriaControls );
-			}
-			tab.attr({
-				"aria-controls": panelId,
-				"aria-labelledby": anchorId
-			});
-			panel.attr( "aria-labelledby", anchorId );
-		});
-
-		this.panels
-			.addClass( "ui-tabs-panel ui-widget-content ui-corner-bottom" )
-			.attr( "role", "tabpanel" );
-	},
-
-	// allow overriding how to find the list for rare usage scenarios (#7715)
-	_getList: function() {
-		return this.tablist || this.element.find( "ol,ul" ).eq( 0 );
-	},
-
-	_createPanel: function( id ) {
-		return $( "<div>" )
-			.attr( "id", id )
-			.addClass( "ui-tabs-panel ui-widget-content ui-corner-bottom" )
-			.data( "ui-tabs-destroy", true );
-	},
-
-	_setupDisabled: function( disabled ) {
-		if ( $.isArray( disabled ) ) {
-			if ( !disabled.length ) {
-				disabled = false;
-			} else if ( disabled.length === this.anchors.length ) {
-				disabled = true;
-			}
-		}
-
-		// disable tabs
-		for ( var i = 0, li; ( li = this.tabs[ i ] ); i++ ) {
-			if ( disabled === true || $.inArray( i, disabled ) !== -1 ) {
-				$( li )
-					.addClass( "ui-state-disabled" )
-					.attr( "aria-disabled", "true" );
-			} else {
-				$( li )
-					.removeClass( "ui-state-disabled" )
-					.removeAttr( "aria-disabled" );
-			}
-		}
-
-		this.options.disabled = disabled;
-	},
-
-	_setupEvents: function( event ) {
-		var events = {};
-		if ( event ) {
-			$.each( event.split(" "), function( index, eventName ) {
-				events[ eventName ] = "_eventHandler";
-			});
-		}
-
-		this._off( this.anchors.add( this.tabs ).add( this.panels ) );
-		// Always prevent the default action, even when disabled
-		this._on( true, this.anchors, {
-			click: function( event ) {
-				event.preventDefault();
-			}
-		});
-		this._on( this.anchors, events );
-		this._on( this.tabs, { keydown: "_tabKeydown" } );
-		this._on( this.panels, { keydown: "_panelKeydown" } );
-
-		this._focusable( this.tabs );
-		this._hoverable( this.tabs );
-	},
-
-	_setupHeightStyle: function( heightStyle ) {
-		var maxHeight,
-			parent = this.element.parent();
-
-		if ( heightStyle === "fill" ) {
-			maxHeight = parent.height();
-			maxHeight -= this.element.outerHeight() - this.element.height();
-
-			this.element.siblings( ":visible" ).each(function() {
-				var elem = $( this ),
-					position = elem.css( "position" );
-
-				if ( position === "absolute" || position === "fixed" ) {
-					return;
-				}
-				maxHeight -= elem.outerHeight( true );
-			});
-
-			this.element.children().not( this.panels ).each(function() {
-				maxHeight -= $( this ).outerHeight( true );
-			});
-
-			this.panels.each(function() {
-				$( this ).height( Math.max( 0, maxHeight -
-					$( this ).innerHeight() + $( this ).height() ) );
-			})
-			.css( "overflow", "auto" );
-		} else if ( heightStyle === "auto" ) {
-			maxHeight = 0;
-			this.panels.each(function() {
-				maxHeight = Math.max( maxHeight, $( this ).height( "" ).height() );
-			}).height( maxHeight );
-		}
-	},
-
-	_eventHandler: function( event ) {
-		var options = this.options,
-			active = this.active,
-			anchor = $( event.currentTarget ),
-			tab = anchor.closest( "li" ),
-			clickedIsActive = tab[ 0 ] === active[ 0 ],
-			collapsing = clickedIsActive && options.collapsible,
-			toShow = collapsing ? $() : this._getPanelForTab( tab ),
-			toHide = !active.length ? $() : this._getPanelForTab( active ),
-			eventData = {
-				oldTab: active,
-				oldPanel: toHide,
-				newTab: collapsing ? $() : tab,
-				newPanel: toShow
-			};
-
-		event.preventDefault();
-
-		if ( tab.hasClass( "ui-state-disabled" ) ||
-				// tab is already loading
-				tab.hasClass( "ui-tabs-loading" ) ||
-				// can't switch durning an animation
-				this.running ||
-				// click on active header, but not collapsible
-				( clickedIsActive && !options.collapsible ) ||
-				// allow canceling activation
-				( this._trigger( "beforeActivate", event, eventData ) === false ) ) {
-			return;
-		}
-
-		options.active = collapsing ? false : this.tabs.index( tab );
-
-		this.active = clickedIsActive ? $() : tab;
-		if ( this.xhr ) {
-			this.xhr.abort();
-		}
-
-		if ( !toHide.length && !toShow.length ) {
-			$.error( "jQuery UI Tabs: Mismatching fragment identifier." );
-		}
-
-		if ( toShow.length ) {
-			this.load( this.tabs.index( tab ), event );
-		}
-		this._toggle( event, eventData );
-	},
-
-	// handles show/hide for selecting tabs
-	_toggle: function( event, eventData ) {
-		var that = this,
-			toShow = eventData.newPanel,
-			toHide = eventData.oldPanel;
-
-		this.running = true;
-
-		function complete() {
-			that.running = false;
-			that._trigger( "activate", event, eventData );
-		}
-
-		function show() {
-			eventData.newTab.closest( "li" ).addClass( "ui-tabs-active ui-state-active" );
-
-			if ( toShow.length && that.options.show ) {
-				that._show( toShow, that.options.show, complete );
-			} else {
-				toShow.show();
-				complete();
-			}
-		}
-
-		// start out by hiding, then showing, then completing
-		if ( toHide.length && this.options.hide ) {
-			this._hide( toHide, this.options.hide, function() {
-				eventData.oldTab.closest( "li" ).removeClass( "ui-tabs-active ui-state-active" );
-				show();
-			});
-		} else {
-			eventData.oldTab.closest( "li" ).removeClass( "ui-tabs-active ui-state-active" );
-			toHide.hide();
-			show();
-		}
-
-		toHide.attr( "aria-hidden", "true" );
-		eventData.oldTab.attr({
-			"aria-selected": "false",
-			"aria-expanded": "false"
-		});
-		// If we're switching tabs, remove the old tab from the tab order.
-		// If we're opening from collapsed state, remove the previous tab from the tab order.
-		// If we're collapsing, then keep the collapsing tab in the tab order.
-		if ( toShow.length && toHide.length ) {
-			eventData.oldTab.attr( "tabIndex", -1 );
-		} else if ( toShow.length ) {
-			this.tabs.filter(function() {
-				return $( this ).attr( "tabIndex" ) === 0;
-			})
-			.attr( "tabIndex", -1 );
-		}
-
-		toShow.attr( "aria-hidden", "false" );
-		eventData.newTab.attr({
-			"aria-selected": "true",
-			"aria-expanded": "true",
-			tabIndex: 0
-		});
-	},
-
-	_activate: function( index ) {
-		var anchor,
-			active = this._findActive( index );
-
-		// trying to activate the already active panel
-		if ( active[ 0 ] === this.active[ 0 ] ) {
-			return;
-		}
-
-		// trying to collapse, simulate a click on the current active header
-		if ( !active.length ) {
-			active = this.active;
-		}
-
-		anchor = active.find( ".ui-tabs-anchor" )[ 0 ];
-		this._eventHandler({
-			target: anchor,
-			currentTarget: anchor,
-			preventDefault: $.noop
-		});
-	},
-
-	_findActive: function( index ) {
-		return index === false ? $() : this.tabs.eq( index );
-	},
-
-	_getIndex: function( index ) {
-		// meta-function to give users option to provide a href string instead of a numerical index.
-		if ( typeof index === "string" ) {
-			index = this.anchors.index( this.anchors.filter( "[href$='" + index + "']" ) );
-		}
-
-		return index;
-	},
-
-	_destroy: function() {
-		if ( this.xhr ) {
-			this.xhr.abort();
-		}
-
-		this.element.removeClass( "ui-tabs ui-widget ui-widget-content ui-corner-all ui-tabs-collapsible" );
-
-		this.tablist
-			.removeClass( "ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all" )
-			.removeAttr( "role" );
-
-		this.anchors
-			.removeClass( "ui-tabs-anchor" )
-			.removeAttr( "role" )
-			.removeAttr( "tabIndex" )
-			.removeUniqueId();
-
-		this.tabs.add( this.panels ).each(function() {
-			if ( $.data( this, "ui-tabs-destroy" ) ) {
-				$( this ).remove();
-			} else {
-				$( this )
-					.removeClass( "ui-state-default ui-state-active ui-state-disabled " +
-						"ui-corner-top ui-corner-bottom ui-widget-content ui-tabs-active ui-tabs-panel" )
-					.removeAttr( "tabIndex" )
-					.removeAttr( "aria-live" )
-					.removeAttr( "aria-busy" )
-					.removeAttr( "aria-selected" )
-					.removeAttr( "aria-labelledby" )
-					.removeAttr( "aria-hidden" )
-					.removeAttr( "aria-expanded" )
-					.removeAttr( "role" );
-			}
-		});
-
-		this.tabs.each(function() {
-			var li = $( this ),
-				prev = li.data( "ui-tabs-aria-controls" );
-			if ( prev ) {
-				li
-					.attr( "aria-controls", prev )
-					.removeData( "ui-tabs-aria-controls" );
-			} else {
-				li.removeAttr( "aria-controls" );
-			}
-		});
-
-		this.panels.show();
-
-		if ( this.options.heightStyle !== "content" ) {
-			this.panels.css( "height", "" );
-		}
-	},
-
-	enable: function( index ) {
-		var disabled = this.options.disabled;
-		if ( disabled === false ) {
-			return;
-		}
-
-		if ( index === undefined ) {
-			disabled = false;
-		} else {
-			index = this._getIndex( index );
-			if ( $.isArray( disabled ) ) {
-				disabled = $.map( disabled, function( num ) {
-					return num !== index ? num : null;
-				});
-			} else {
-				disabled = $.map( this.tabs, function( li, num ) {
-					return num !== index ? num : null;
-				});
-			}
-		}
-		this._setupDisabled( disabled );
-	},
-
-	disable: function( index ) {
-		var disabled = this.options.disabled;
-		if ( disabled === true ) {
-			return;
-		}
-
-		if ( index === undefined ) {
-			disabled = true;
-		} else {
-			index = this._getIndex( index );
-			if ( $.inArray( index, disabled ) !== -1 ) {
-				return;
-			}
-			if ( $.isArray( disabled ) ) {
-				disabled = $.merge( [ index ], disabled ).sort();
-			} else {
-				disabled = [ index ];
-			}
-		}
-		this._setupDisabled( disabled );
-	},
-
-	load: function( index, event ) {
-		index = this._getIndex( index );
-		var that = this,
-			tab = this.tabs.eq( index ),
-			anchor = tab.find( ".ui-tabs-anchor" ),
-			panel = this._getPanelForTab( tab ),
-			eventData = {
-				tab: tab,
-				panel: panel
-			};
-
-		// not remote
-		if ( this._isLocal( anchor[ 0 ] ) ) {
-			return;
-		}
-
-		this.xhr = $.ajax( this._ajaxSettings( anchor, event, eventData ) );
-
-		// support: jQuery <1.8
-		// jQuery <1.8 returns false if the request is canceled in beforeSend,
-		// but as of 1.8, $.ajax() always returns a jqXHR object.
-		if ( this.xhr && this.xhr.statusText !== "canceled" ) {
-			tab.addClass( "ui-tabs-loading" );
-			panel.attr( "aria-busy", "true" );
-
-			this.xhr
-				.success(function( response ) {
-					// support: jQuery <1.8
-					// http://bugs.jquery.com/ticket/11778
-					setTimeout(function() {
-						panel.html( response );
-						that._trigger( "load", event, eventData );
-					}, 1 );
-				})
-				.complete(function( jqXHR, status ) {
-					// support: jQuery <1.8
-					// http://bugs.jquery.com/ticket/11778
-					setTimeout(function() {
-						if ( status === "abort" ) {
-							that.panels.stop( false, true );
-						}
-
-						tab.removeClass( "ui-tabs-loading" );
-						panel.removeAttr( "aria-busy" );
-
-						if ( jqXHR === that.xhr ) {
-							delete that.xhr;
-						}
-					}, 1 );
-				});
-		}
-	},
-
-	_ajaxSettings: function( anchor, event, eventData ) {
-		var that = this;
-		return {
-			url: anchor.attr( "href" ),
-			beforeSend: function( jqXHR, settings ) {
-				return that._trigger( "beforeLoad", event,
-					$.extend( { jqXHR: jqXHR, ajaxSettings: settings }, eventData ) );
-			}
-		};
-	},
-
-	_getPanelForTab: function( tab ) {
-		var id = $( tab ).attr( "aria-controls" );
-		return this.element.find( this._sanitizeSelector( "#" + id ) );
-	}
-});
-
 /*!
  * jQuery UI Accordion 1.11.4
  * http://jqueryui.com
@@ -19731,6 +18879,7 @@ var accordion = $.widget( "ui.accordion", {
 });
 
 }));
+
 ;/**
 *
 * jquery.sparkline.js
@@ -24853,7 +24002,7 @@ function getSocketURL() {
         // redirect back
         var set_default = true;
         if(redirect_url) {
-            var do_not_redirect = ['reset_passwordws', 'lost_passwordws', 'change_passwordws', 'home'];
+            var do_not_redirect = ['home'];
             var reg = new RegExp(do_not_redirect.join('|'), 'i');
             if(!reg.test(redirect_url) && page.url.url_for('') !== redirect_url) {
                 set_default = false;
@@ -24930,166 +24079,6 @@ function getSocketURL() {
     };
 }());
 
-;var MenuContent = (function () {
-    var listeners_events = [];
-
-    var that = {
-        init: function (_menu_containers) {
-            if (/trading/.test(window.location.pathname)) return;
-            _menu_containers.filter(':not(.follow-default)').delegate('.tm-a,.tm-a-2', 'click', function (event) {
-                event.preventDefault();
-
-                var target = $(event.target);
-                var tab_id = target.parents('li:first').attr('id');
-
-                if (tab_id)
-                {
-                    var tab_container = target.parents('.tm-ul');
-
-                    var selected_tab =
-                        // find previously active tab
-                        tab_container.find('.tm-a,.tm-a-2')
-                        // remove previously active tab
-                        .removeClass('a-active').end()
-                        // unwrap previously active tab
-                        .find('.menu-wrap-a .tm-a').unwrap().unwrap()
-                        // go back to selected target
-                        .end().end()
-                        // set active class to it
-                        .addClass('a-active')
-                        // set active class to its parent as well
-                        .parents('.tm-li').addClass('active').removeClass('hover').find('.tm-li-2').addClass('active').end()
-                        // wrap it
-                        .find('.tm-a').wrap('<span class="menu-wrap-a"><span class="menu-wrap-b"></span></span>').end()
-                        // remove previously active parent
-                        .siblings().removeClass('active').find('.tm-li-2').removeClass('active').end()
-                        .end().end();
-
-                    // replace span to a, to make it clickable for real
-                    var span_tm_a = tab_container.find('span.tm-a');
-                    span_tm_a.replaceWith('<a href="#" class="'+span_tm_a.attr('class')+'">'+span_tm_a.html()+'</a>');
-
-                    var menu_li = selected_tab.parents('li');
-                    var sub_menu_selected = menu_li.find('.tm-ul-2 .a-active');
-                    var selected_tab_id = menu_li.attr('id');
-
-                    if (!sub_menu_selected.length)
-                    {
-                        sub_menu_selected = menu_li.find('.tm-a-2:first').addClass('a-active');
-
-                        if (sub_menu_selected.length)
-                        {
-                            selected_tab = sub_menu_selected;
-                            selected_tab_id = sub_menu_selected.parents('li').attr('id');
-                            selected_content = $('#'+selected_tab_id+'-content').removeClass('invisible');
-                        }
-                        else
-                        {
-                            selected_tab_id = menu_li.attr('id');
-                        }
-                    }
-
-                    var selected_content = $('#'+selected_tab_id+'-content')
-                        // show selected tab content
-                        .removeClass('invisible')
-                        // and hide the rest
-                        .siblings(':not(.sticky)').addClass('invisible').end();
-
-                    that.push_to_listeners({
-                        'id': selected_tab_id,
-                        'target': selected_tab,
-                        'content': selected_content,
-                        'menu': menu_li.parents('ul.tm-ul'),
-                        'event': event
-                    });
-                }
-
-                return false;
-            });
-        },
-        push_to_listeners: function (info)
-        {
-            // push to listeners events
-            for (var i=0; i<listeners_events.length; i++)
-            {
-                listeners_events[i](info);
-            }
-        },
-        listen_click: function (callback)
-        {
-            if (typeof callback != 'function')
-            {
-                return false;
-            }
-
-            listeners_events.push(callback);
-        },
-        find_selected_tab: function (menu_id)
-        {
-            var menu = $('#'+menu_id);
-            var selected_tab = menu.find('.a-active').parents('.tm-li');
-
-            if (!selected_tab.length)
-            {
-                selected_tab = menu.find('.active');
-            }
-
-            return selected_tab;
-        },
-        is_tab_selected: function (tab)
-        {
-            return tab.hasClass('active');
-        },
-        hide_tab: function (tab)
-        {
-            tab.addClass('invisible').find('.menu-wrap-a .tm-a').unwrap().unwrap();
-            $('#'+tab.attr('id')+'-content').addClass('invisible');
-        },
-        show_tab: function (tab)
-        {
-            tab.removeClass('invisible');
-        },
-        trigger: function (id)
-        {
-            var tab_id = id['tab_id'];
-            var content_id = id['content_id'];
-
-            if (!tab_id && typeof content_id != 'undefined') {
-                var matched = content_id.match(/^(.+)-content$/);
-                if (matched && matched[1]) {
-                    tab_id = matched[1];
-                }
-            }
-
-            if (!tab_id)
-            {
-                return false;
-            }
-
-            var tab_to_trigger = $('#'+tab_id);
-
-            if (!tab_to_trigger.size() || tab_to_trigger.hasClass('invisible'))
-            {
-                return false;
-            }
-            else
-            {
-                var tab = tab_to_trigger.find('.tm-a');
-                if (tab.size())
-                {
-                    return tab.trigger('click');
-                }
-                else
-                {
-                    return tab_to_trigger.find('.tm-a-2').trigger('click');
-                }
-            }
-        }
-    };
-
-    return that;
-})();
-
 ;var text;
 var clock_started = false;
 
@@ -25140,19 +24129,12 @@ var GTM = (function() {
 
     var event_handler = function(get_settings) {
         if (!gtm_applicable()) return;
-        var is_login      = localStorage.getItem('GTM_login')      === '1',
-            is_newaccount = localStorage.getItem('GTM_newaccount') === '1';
-        if(!is_login && !is_newaccount) {
+        var is_login      = localStorage.getItem('GTM_login')      === '1';
+        if(!is_login) {
             return;
         }
 
         localStorage.removeItem('GTM_login');
-        localStorage.removeItem('GTM_newaccount');
-
-        var affiliateToken = Cookies.getJSON('affiliate_tracking');
-        if (affiliateToken) {
-            GTM.push_data_layer({'bom_affiliate_token': affiliateToken.t});
-        }
 
         var data = {
             'visitorId'   : page.client.loginid,
@@ -25160,11 +24142,8 @@ var GTM = (function() {
             'bom_email'   : get_settings.email,
             'url'         : window.location.href,
             'bom_today'   : Math.floor(Date.now() / 1000),
-            'event'       : is_newaccount ? 'new_account' : 'log_in'
+            'event'       : 'log_in'
         };
-        if(is_newaccount) {
-            data['bom_date_joined'] = data['bom_today'];
-        }
         if(!page.client.is_virtual()) {
             data['bom_age']       = parseInt((moment().unix() - get_settings.date_of_birth) / 31557600);
             data['bom_firstname'] = get_settings.first_name;
@@ -25174,75 +24153,15 @@ var GTM = (function() {
         GTM.push_data_layer(data);
     };
 
-    var push_purchase_data = function(response) {
-        if (!gtm_applicable() || page.client.is_virtual()) return;
-        var req = response.echo_req.passthrough,
-            buy = response.buy;
-        if (!buy) return;
-        var data = {
-            'event'              : 'buy_contract',
-            'visitorId'          : page.client.loginid,
-            'bom_symbol'         : req.symbol,
-            'bom_market'         : markets && markets.by_symbol(req.symbol) ?
-                markets.by_symbol(req.symbol).market.name :
-                document.getElementById('contract_markets').value,
-            'bom_currency'       : req.currency,
-            'bom_contract_type'  : req.contract_type,
-            'bom_contract_id'    : buy.contract_id,
-            'bom_transaction_id' : buy.transaction_id,
-            'bom_buy_price'      : buy.buy_price,
-            'bom_payout'         : buy.payout,
-        };
-        // Spread contracts
-        if (/spread/i.test(req.contract_type)) {
-            $.extend(data, {
-                'bom_stop_type'         : req.stop_type,
-                'bom_amount_per_point'  : buy.amount_per_point,
-                'bom_stop_loss_level'   : buy.stop_loss_level,
-                'bom_stop_profit_level' : buy.stop_profit_level,
-            });
-        } else {
-            $.extend(data, {
-                'bom_amount'      : req.amount,
-                'bom_basis'       : req.basis,
-                'bom_expiry_type' : document.getElementById('expiry_type').value,
-            });
-            if(data.bom_expiry_type === 'duration') {
-                $.extend(data, {
-                    'bom_duration'      : req.duration,
-                    'bom_duration_unit' : req.duration_unit,
-                });
-            }
-            if(isVisible(document.getElementById('barrier'))) {
-                data['bom_barrier'] = req.barrier;
-            } else if(isVisible(document.getElementById('barrier_high'))) {
-                data['bom_barrier_high'] = req.barrier;
-                data['bom_barrier_low']  = req.barrier2;
-            }
-            if(isVisible(document.getElementById('prediction'))) {
-                data['bom_prediction']  = req.barrier;
-            }
-        }
-
-        GTM.push_data_layer(data);
-    };
-
     var set_login_flag = function() {
         if (!gtm_applicable()) return;
         localStorage.setItem('GTM_login', '1');
     };
 
-    var set_newaccount_flag = function() {
-        if (!gtm_applicable()) return;
-        localStorage.setItem('GTM_newaccount', '1');
-    };
-
     return {
         push_data_layer     : push_data_layer,
         event_handler       : event_handler,
-        push_purchase_data  : push_purchase_data,
-        set_login_flag      : set_login_flag,
-        set_newaccount_flag : set_newaccount_flag,
+        set_login_flag      : set_login_flag
     };
 }());
 
@@ -25274,19 +24193,6 @@ Client.prototype = {
         }
         return !this.is_logged_in;
     },
-    redirect_if_is_virtual: function(redirectPage) {
-        var is_virtual = this.is_virtual();
-        if(is_virtual) {
-            window.location.href = page.url.url_for(redirectPage || '');
-        }
-        return is_virtual;
-    },
-    redirect_if_login: function() {
-        if(page.client.is_logged_in) {
-            window.location.href = page.url.default_redirect_url();
-        }
-        return page.client.is_logged_in;
-    },
     is_virtual: function() {
         return this.get_storage_value('is_virtual') === '1';
     },
@@ -25303,62 +24209,12 @@ Client.prototype = {
             this.set_storage_value('is_virtual', TUser.get().is_virtual);
         }
 
-        // currencies
-        if(!this.get_storage_value('currencies')) {
-            BinarySocket.send({
-                'payout_currencies': 1,
-                'passthrough': {
-                    'handler': 'page.client',
-                    'origin' : origin || ''
-                }
-            });
-            is_ok = false;
-        }
-
-        // allowed markets
-        if(this.is_logged_in) {
-            if(
-                !this.get_storage_value('is_virtual') &&
-                !this.get_storage_value('allowed_markets') &&
-                Cookies.get('residence')
-            ) {
-                $('#topMenuStartBetting').addClass('invisible');
-                BinarySocket.send({
-                    'landing_company': Cookies.get('residence'),
-                    'passthrough': {
-                        'handler': 'page.client',
-                        'origin' : origin || ''
-                    }
-                });
-                is_ok = false;
-            }
-        }
-
         // website TNC version
         if(!LocalStore.get('website.tnc_version')) {
             BinarySocket.send({'website_status': 1});
         }
 
         return is_ok;
-    },
-    response_payout_currencies: function(response) {
-        if (!response.hasOwnProperty('error')) {
-            this.set_storage_value('currencies', response.payout_currencies.join(','));
-            if(response.echo_req.hasOwnProperty('passthrough') && response.echo_req.passthrough.origin === 'attributes.restore.currency') {
-                BetForm.attributes.restore.currency();
-            }
-        }
-    },
-    response_landing_company: function(response) {
-        if (!response.hasOwnProperty('error')) {
-            var allowed_markets = response.legal_allowed_markets;
-            var company = response.name;
-
-            this.set_storage_value('allowed_markets', allowed_markets.length === 0 ? '' : allowed_markets.join(','));
-            this.set_storage_value('landing_company_name', company);
-
-            page.header.menu.register_dynamic_links();
-        }
     },
     response_authorize: function(response) {
         page.client.set_storage_value('session_start', parseInt(moment().valueOf() / 1000));
@@ -25367,6 +24223,7 @@ Client.prototype = {
         this.set_storage_value('is_virtual', TUser.get().is_virtual);
         this.check_storage_values();
         page.contents.activate_by_client_type();
+        page.contents.topbar_message_visibility();
     },
     check_tnc: function() {
         if(!page.client.is_virtual() && sessionStorage.getItem('check_tnc') === '1') {
@@ -25383,12 +24240,11 @@ Client.prototype = {
     },
     clear_storage_values: function() {
         var that  = this;
-        var items = ['currencies', 'allowed_markets', 'landing_company_name', 'is_virtual', 'tnc_status', 'session_duration_limit', 'session_start'];
+        var items = ['is_virtual', 'tnc_status', 'session_duration_limit', 'session_start'];
         items.forEach(function(item) {
             that.set_storage_value(item, '');
         });
         localStorage.removeItem('website.tnc_version');
-        sessionStorage.setItem('currencies', '');
     },
     update_storage_values: function() {
         this.clear_storage_values();
@@ -25425,28 +24281,6 @@ Client.prototype = {
         cookie_expire.setDate(cookie_expire.getDate() + 60);
         var cookie = new CookieStorage(cookieName, domain);
         cookie.write(Value, cookie_expire, true);
-    },
-    process_new_account: function(email, loginid, token, is_virtual) {
-        if(!email || !loginid || !token) {
-            return;
-        }
-        // save token
-        this.add_token(loginid, token);
-        // set cookies
-        this.set_cookie('email'       , email);
-        this.set_cookie('login'       , token);
-        this.set_cookie('loginid'     , loginid);
-        this.set_cookie('loginid_list', is_virtual ? loginid + ':V:E' : loginid + ':R:E' + '+' + Cookies.get('loginid_list'));
-        // set local storage
-        GTM.set_newaccount_flag();
-        localStorage.setItem('active_loginid', loginid);
-        window.location.href = page.url.default_redirect_url();
-    },
-    can_upgrade_gaming_to_financial: function(data) {
-        return (data.hasOwnProperty('financial_company') && data.financial_company.shortcode === 'maltainvest');
-    },
-    can_upgrade_virtual_to_financial: function(data) {
-        return (data.hasOwnProperty('financial_company') && !data.hasOwnProperty('gaming_company') && data.financial_company.shortcode === 'maltainvest');
     }
 };
 
@@ -25502,42 +24336,15 @@ URL.prototype = {
         this.is_valid = true;
         $(this).trigger("change", [ this ]);
     },
-    invalidate: function() {
-        this.is_valid = false;
-    },
-    update: function(url) {
-        var state_info = { container: 'content', url: url, useClass: 'pjaxload' };
-        if(this.history_supported) {
-            history.pushState(state_info, '', url);
-            this.reset();
-        }
-        this.is_valid = true;
-    },
     param: function(name) {
         var param_hash= this.params_hash();
         return param_hash[name];
-    },
-    replaceQueryParam: function (param, newval, search) {
-      var regex = new RegExp("([?;&])" + param + "[^&;]*[;&]?");
-      var query = search.replace(regex, "$1").replace(/&$/, '');
-      return (query.length > 2 ? query + "&" : "?") + (newval ? param + "=" + newval : '');
-    },
-    param_if_valid: function(name) {
-        if(this.is_valid) {
-           return this.param(name);
-        }
-        return;
     },
     path_matches: function(url) {
         //pathname is /d/page.cgi. Eliminate /d/ and /c/ from both urls.
         var this_pathname = this.location.pathname.replace(/\/[d|c]\//g, '');
         var url_pathname = url.location.pathname.replace(/\/[d|c]\//g, '');
         return (this_pathname == url_pathname || '/' + this_pathname == url_pathname);
-    },
-    params_hash_to_string: function(params) {
-        return Object.keys(params)
-            .map(function(key) { return key + '=' + params[key]; })
-            .join('&');
     },
     is_in: function(url) {
         if(this.path_matches(url)) {
@@ -25580,7 +24387,7 @@ URL.prototype = {
         return params;
     },
     default_redirect_url: function() {
-        return 'home';
+        return 'user/settings/metatrader';
     },
 };
 
@@ -25595,30 +24402,20 @@ Menu.prototype = {
         this.reset();
     },
     activate: function() {
-        $('#menu-top li').removeClass('active');
-
-        var active = this.active_menu_top();
-        if(active) {
-            active.addClass('active');
+        if (page.client.is_logged_in) {
+            this.show_main_menu();
         }
     },
     show_main_menu: function() {
-        $("#main-menu").removeClass('hidden');
+        $("#main-menu > div").removeClass('hidden');
         this.activate_main_menu();
-    },
-    hide_main_menu: function() {
-        $("#main-menu").addClass('hidden');
     },
     activate_main_menu: function() {
         //First unset everything.
         $("#main-menu li.item").removeClass('active');
         $("#main-menu li.item").removeClass('hover');
-        $("#main-menu li.sub_item a").removeClass('a-active');
 
         var active = this.active_main_menu();
-        if(active.subitem) {
-            active.subitem.addClass('a-active');
-        }
 
         if(active.item) {
             active.item.addClass('active');
@@ -25643,25 +24440,9 @@ Menu.prototype = {
                 active_item.addClass('hover');
         });
     },
-    active_menu_top: function() {
-        var active;
-        var path = window.location.pathname;
-        $('#menu-top li a').each(function() {
-            if(path.indexOf(this.pathname.replace(/\.html/i, '')) >= 0) {
-                active = $(this).closest('li');
-            }
-        });
-
-        return active;
-    },
     active_main_menu: function() {
         var page_url = this.page_url;
-        if(/detailsws|securityws|self_exclusionws|limitsws|api_tokenws|authorised_appsws|iphistoryws|assessmentws/i.test(page_url.location.href)) {
-            page_url = new URL($('#main-menu a[href*="user/settingsws"]').attr('href'));
-        }
-
         var item;
-        var subitem;
 
         //Is something selected in main items list
         $("#main-menu .items a").each(function () {
@@ -25671,31 +24452,7 @@ Menu.prototype = {
             }
         });
 
-        $("#main-menu .sub_items a").each(function(){
-            var link_href = $(this).attr('href');
-            if (link_href) {
-                var url = new URL(link_href);
-                if(url.is_in(page_url)) {
-                    item = $(this).closest('.item');
-                    subitem = $(this);
-                }
-            }
-        });
-
-        return { item: item, subitem: subitem };
-    },
-    register_dynamic_links: function() {
-        var stored_market = page.url.param('market') || LocalStore.get('bet_page.market') || 'forex';
-        var allowed_markets = page.client.get_storage_value('allowed_markets');
-        if(!allowed_markets && page.client.is_logged_in && !TUser.get().is_virtual) {
-            return;
-        }
-
-        var markets_array = allowed_markets ? allowed_markets.split(',') : [];
-        if(!TUser.get().is_virtual && markets_array.indexOf(stored_market) < 0) {
-            stored_market = markets_array[0];
-            LocalStore.set('bet_page.market', stored_market);
-        }
+        return { item: item };
     }
 };
 
@@ -25710,12 +24467,7 @@ Header.prototype = {
         this.show_or_hide_login_form();
         this.register_dynamic_links();
         this.logout_handler();
-        if (!$('body').hasClass('BlueTopBack')) {
-          checkClientsCountry();
-        }
-        if(page.client.is_logged_in) {
-            $('ul#menu-top').addClass('smaller-font');
-        }
+        checkClientsCountry();
     },
     on_unload: function() {
         this.menu.reset();
@@ -25747,15 +24499,13 @@ Header.prototype = {
     },
     register_dynamic_links: function() {
         var logged_in_url = this.client.is_logged_in ?
-            page.url.url_for('user/my_accountws') :
+            page.url.url_for('user/settings/metatrader') :
             page.url.url_for('');
 
         $('#logo').attr('href', logged_in_url).on('click', function(event) {
             event.preventDefault();
             load_with_pjax(logged_in_url);
         }).addClass('unbind_later');
-
-        this.menu.register_dynamic_links();
     },
     start_clock_ws: function() {
         function getTime() {
@@ -25827,7 +24577,7 @@ Header.prototype = {
         page.client.clear_storage_values();
         LocalStore.remove('client.tokens');
         sessionStorage.removeItem('withdrawal_locked');
-        var cookies = ['login', 'loginid', 'loginid_list', 'email', 'settings', 'affiliate_token', 'affiliate_tracking', 'residence', 'allowed_markets'];
+        var cookies = ['login', 'loginid', 'loginid_list', 'email', 'settings', 'residence'];
         var domains = [
             '.' + document.domain.split('.').slice(-2).join('.'),
             '.' + document.domain,
@@ -25862,7 +24612,6 @@ Contents.prototype = {
     on_load: function() {
         this.activate_by_client_type();
         this.update_content_class();
-        this.init_draggable();
     },
     on_unload: function() {
         if ($('.unbind_later').length > 0) {
@@ -25881,25 +24630,12 @@ Contents.prototype = {
 
                 $('#topbar').addClass('primary-color-dark');
                 $('#topbar').removeClass('secondary-bg-color');
-
-                if (!/^CR/.test(this.client.loginid)) {
-                    $('#payment-agent-section').addClass('invisible');
-                    $('#payment-agent-section').hide();
-                }
-
-                if (!/^MF|MLT/.test(this.client.loginid)) {
-                    $('#account-transfer-section').addClass('invisible');
-                    $('#account-transfer-section').hide();
-                }
             } else {
                 $('.by_client_type.client_virtual').removeClass('invisible');
                 $('.by_client_type.client_virtual').show();
 
                 $('#topbar').addClass('secondary-bg-color');
                 $('#topbar').removeClass('primary-color-dark');
-
-                $('#account-transfer-section').addClass('invisible');
-                $('#account-transfer-section').hide();
             }
         } else {
             $('#btn_login').unbind('click').click(function(e){e.preventDefault(); Login.redirect_to_login();});
@@ -25909,9 +24645,6 @@ Contents.prototype = {
 
             $('#topbar').removeClass('secondary-bg-color');
             $('#topbar').addClass('primary-color-dark');
-
-            $('#account-transfer-section').addClass('invisible');
-            $('#account-transfer-section').hide();
         }
     },
     update_content_class: function() {
@@ -25919,66 +24652,14 @@ Contents.prototype = {
         $('#content').removeClass();
         $('#content').addClass($('#content_class').html());
     },
-    init_draggable: function() {
-        $('.draggable').draggable();
-    },
-    topbar_message_visibility: function(c_config) {
+    topbar_message_visibility: function() {
         if(this.client.is_logged_in) {
-            if(page.client.get_storage_value('is_virtual').length === 0 || !c_config) {
+            if(page.client.get_storage_value('is_virtual').length === 0) {
                 return;
             }
-            var loginid_array = this.user.loginid_array;
-
-            var $upgrade_msg = $('.upgrademessage'),
-                hiddenClass  = 'invisible';
-            var hide_upgrade = function() {
-                $upgrade_msg.addClass(hiddenClass);
-            };
-            var show_upgrade = function(url, msg) {
-                $upgrade_msg.removeClass(hiddenClass)
-                    .find('a').removeClass(hiddenClass)
-                        .attr('href', page.url.url_for(url)).html($('<span/>', {text: text.localize(msg)}));
-            };
 
             if (page.client.is_virtual()) {
-                var show_upgrade_msg = true;
-                var show_virtual_msg = true;
-                for (var i = 0; i < loginid_array.length; i++) {
-                    if (loginid_array[i].real) {
-                        hide_upgrade();
-                        show_upgrade_msg = false;
-                        break;
-                    }
-                }
-                if (show_upgrade_msg) {
-                    $upgrade_msg.find('> span').removeClass(hiddenClass);
-                    if (page.client.can_upgrade_virtual_to_financial(c_config)) {
-                        show_upgrade('new_account/maltainvestws', 'Upgrade to a Financial Account');
-                    } else {
-                        show_upgrade('new_account/realws', 'Upgrade to a Real Account');
-                    }
-                } else if (show_virtual_msg) {
-                    $upgrade_msg.removeClass(hiddenClass).find('> span').removeClass(hiddenClass);
-                }
-            } else {
-                var show_financial = false;
-
-                // also allow UK MLT client to open MF account
-                if (page.client.can_upgrade_gaming_to_financial(c_config) || (this.client.residence == 'gb' && /^MLT/.test(this.client.loginid))) {
-                    show_financial = true;
-                    for (var j=0;j<loginid_array.length;j++) {
-                        if (loginid_array[j].financial) {
-                            show_financial = false;
-                            break;
-                        }
-                    }
-                }
-                if (show_financial) {
-                    $('#virtual-text').parent().addClass('invisible');
-                    show_upgrade('new_account/maltainvestws', 'Open a Financial Account');
-                } else {
-                    hide_upgrade();
-                }
+                $('.upgrademessage').removeClass('invisible');
             }
         }
     },
@@ -26024,7 +24705,6 @@ Page.prototype = {
         this.header.on_load();
         this.on_change_language();
         this.on_change_loginid();
-        this.record_affiliate_exposure();
         this.contents.on_load();
         if (CommonData.getLoginToken()) {
             ViewBalance.init();
@@ -26037,7 +24717,6 @@ Page.prototype = {
             sessionStorage.removeItem('showLoginPage');
             Login.redirect_to_login();
         }
-        this.check_language();
         TrafficSource.setData();
     },
     on_unload: function() {
@@ -26072,7 +24751,6 @@ Page.prototype = {
 
         // cleaning the previous values
         page.client.clear_storage_values();
-        sessionStorage.setItem('active_tab', '1');
         sessionStorage.removeItem('withdrawal_locked');
         // set cookies: loginid, login
         page.client.set_cookie('loginid', loginid);
@@ -26091,37 +24769,6 @@ Page.prototype = {
         lang = lang.trim();
         SessionStore.set('selected.language', lang.toUpperCase());
         return window.location.href.replace(new RegExp('\/' + page.language() + '\/', 'i'), '/' + lang.toLowerCase() + '/');
-    },
-    record_affiliate_exposure: function() {
-        var token = this.url.param('t');
-        if (!token || token.length !== 32) {
-            return false;
-        }
-        var token_length = token.length;
-        var is_subsidiary = /\w{1}/.test(this.url.param('s'));
-
-        var cookie_token = Cookies.getJSON('affiliate_tracking');
-        if (cookie_token) {
-            //Already exposed to some other affiliate.
-            if (is_subsidiary && cookie_token && cookie_token.t) {
-                return false;
-            }
-        }
-
-        //Record the affiliate exposure. Overwrite existing cookie, if any.
-        var cookie_hash = {};
-        if (token_length === 32) {
-            cookie_hash["t"] = token.toString();
-        }
-        if (is_subsidiary) {
-            cookie_hash["s"] = "1";
-        }
-
-        Cookies.set("affiliate_tracking", cookie_hash, {
-            expires: 365, //expires in 365 days
-            path: '/',
-            domain: '.' + location.hostname.split('.').slice(-2).join('.')
-        });
     },
     reload: function(forcedReload) {
         window.location.reload(forcedReload ? true : false);
@@ -26142,11 +24789,6 @@ Page.prototype = {
         };
         xhttp.open('GET', page.url.url_for_static() + 'version?' + Math.random().toString(36).slice(2), true);
         xhttp.send();
-    },
-    check_language: function() {
-        if (page.language() === 'ID') {
-          change_blog_link('id');
-        }
     },
 };
 
@@ -26615,32 +25257,6 @@ function attach_time_picker(element, conf) {
     return target.timepicker(opts);
 }
 
-/**
- * attaches tabs to the specified element selector
- *
- * @param element any jquery selector or DOM/jQuery object
- */
-function attach_tabs(element) {
-    var targets = $(element);
-    targets.each(function () {
-        var jqel = $(this);
-        var conf = {};
-        var active = 0;
-        try {
-            active = find_active_jqtab(jqel);
-        } catch (e) {
-            console.log(e);
-            console.log(jqel);
-        }
-        if (active) {
-            conf['active'] = active;
-            $('li.active', jqel).removeClass('active');
-        }
-        jqel.tabs(conf);
-    });
-    return targets;
-}
-
 function showLocalTimeOnHover(s) {
     var selector = s || '.date';
 
@@ -26872,8 +25488,6 @@ onLoad.queue(function () {
         }
     );
 
-    MenuContent.init($('.content-tab-container').find('.tm-ul'));
-
     add_click_effect_to_button();
     make_mobile_menu();
 
@@ -26896,7 +25510,6 @@ onLoad.queue(function () {
 onLoad.queue(function () {
     attach_date_picker('.has-date-picker');
     attach_time_picker('.has-time-picker');
-    attach_tabs('.has-tabs');
 });
 
 // LocalStorage can be used as a means of communication among
@@ -26996,6 +25609,7 @@ for (var key in texts_json) {
             textMessageJustAllowed: text.localize('Only [_1] are allowed.'), // [_1] should be replaced by values including: letters, numbers, space, period, ...
             textMessageValid: text.localize('Please submit a valid [_1].'), // [_1] should be replaced by values such as email address
             textMessageMinRequired: text.localize('Minimum of [_1] characters required.'),
+            textFeatureUnavailable: text.localize('Sorry, this feature is not available.'),
             textMessagePasswordScore: text.localize( 'Password score is: [_1]. Passing score is: 20.'),
             textShouldNotLessThan: text.localize('Please enter a number greater or equal to [_1].'),
             textNumberLimit: text.localize('Please enter a number between [_1].')       // [_1] should be a range
@@ -27075,23 +25689,9 @@ if (typeof module !== 'undefined') {
     };
 }
 
-;function check_login_hide_signup() {
-    if (page.client.is_logged_in) {
-        $('#verify-email-form').remove();
-        $('.break').attr('style', 'margin-bottom:1em');
-    }
-}
-
-// returns true if internet explorer browser
+;// returns true if internet explorer browser
 function isIE() {
   return /(msie|trident|edge)/i.test(window.navigator.userAgent) && !window.opera;
-}
-
-// trim leading and trailing white space
-function Trim(str){
-  while(str.charAt(0) == (" ") ){str = str.substring(1);}
-  while(str.charAt(str.length-1) ==" " ){str = str.substring(0,str.length-1);}
-  return str;
 }
 
 function limitLanguage(lang) {
@@ -27122,40 +25722,9 @@ function checkClientsCountry() {
   }
 }
 
-function change_blog_link(lang) {
-  var regex = new RegExp(lang);
-  if (!regex.test($('.blog a').attr('href'))) {
-    $('.blog a').attr('href', $('.blog a').attr('href') + '/' + lang + '/');
-  }
-}
-
 function addComma(num){
     num = (num || 0) * 1;
     return num.toFixed(2).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-$(function() {
-    $( "#accordion" ).accordion({
-      heightStyle: "content",
-      collapsible: true,
-      active: false
-    });
-});
-
-var $buoop = {
-  vs: {i:10, f:39, o:30, s:5, c:39},
-  l: page.language().toLowerCase(),
-  url: 'https://whatbrowser.org/'
-};
-function $buo_f(){
- var e = document.createElement("script");
- e.src = "//browser-update.org/update.min.js";
- document.body.appendChild(e);
-}
-try {
-  document.addEventListener("DOMContentLoaded", $buo_f,false);
-} catch(e) {
-  window.attachEvent("onload", $buo_f);
 }
 
 ;var SessionDurationLimit = (function() {
@@ -27419,18 +25988,6 @@ var TrafficSource = (function(){
         lengthRange: lengthRange,
     };
 })();
-
-;pjax_config_page('/\?.+|/home', function() {
-    return {
-        onLoad: function() {
-            if(/^(\/|\/home)$/i.test(window.location.pathname)) {
-                page.client.redirect_if_login();
-            }
-            check_login_hide_signup();
-            submit_email();
-        }
-    };
-});
 
 ;var ValidationUI = {
     clear: function() {
@@ -27711,12 +26268,10 @@ function BinarySocketClass() {
                 var type = response.msg_type;
                 if (type === 'authorize') {
                     if(response.hasOwnProperty('error')) {
-                        var isActiveTab = sessionStorage.getItem('active_tab') === '1';
-                        if(response.error.code === 'SelfExclusion' && isActiveTab) {
-                            sessionStorage.removeItem('active_tab');
+                        if(response.error.code === 'SelfExclusion') {
                             alert(response.error.message);
                         }
-                        page.client.send_logout_request(isActiveTab);
+                        page.client.send_logout_request();
                     } else if (response.authorize.loginid !== page.client.loginid) {
                         page.client.send_logout_request(true);
                     } else {
@@ -27727,7 +26282,6 @@ function BinarySocketClass() {
                         if(!Login.is_login_pages()) {
                             page.client.response_authorize(response);
                             send({balance:1, subscribe: 1});
-                            if (Cookies.get('residence')) send({landing_company: Cookies.get('residence')});
                             send({get_settings: 1});
                             if(!page.client.is_virtual()) {
                                 send({get_self_exclusion: 1});
@@ -27741,25 +26295,12 @@ function BinarySocketClass() {
                     page.header.time_counter(response);
                 } else if (type === 'logout') {
                     page.header.do_logout(response);
-                } else if (type === 'landing_company') {
-                    page.contents.topbar_message_visibility(response.landing_company);
-                    var company;
-                    if (response.hasOwnProperty('error')) return;
-                    for (var key in response.landing_company) {
-                        if (TUser.get().landing_company_name === response.landing_company[key].shortcode) {
-                            company = response.landing_company[key];
-                            break;
-                        }
-                    }
                 } else if (type === 'get_self_exclusion') {
                     SessionDurationLimit.exclusionResponseHandler(response);
-                } else if (type === 'payout_currencies' && response.hasOwnProperty('echo_req') && response.echo_req.hasOwnProperty('passthrough') && response.echo_req.passthrough.handler === 'page.client') {
-                    page.client.response_payout_currencies(response);
                 } else if (type === 'get_settings' && response.get_settings) {
                     if (!Cookies.get('residence') && response.get_settings.country_code) {
                       page.client.set_cookie('residence', response.get_settings.country_code);
                       page.client.residence = response.get_settings.country_code;
-                      send({landing_company: Cookies.get('residence')});
                     }
                     GTM.event_handler(response.get_settings);
                     page.client.set_storage_value('tnc_status', response.get_settings.client_tnc_status || '-');
@@ -28067,7 +26608,7 @@ var BinarySocket = new BinarySocketClass();
             makeTextRow('Name', mt5Accounts[accType].name) +
             // makeTextRow('Leverage', mt5Accounts[accType].leverage)
             makeTextRow('', text.localize('Start trading with your ' + (accType === 'demo' ? 'Demo' : 'Real') + ' Account') +
-                ' <a class="button" href="' + page.url.url_for('metatrader/download') + '" style="margin:0 20px;">' +
+                ' <a class="button" href="' + page.url.url_for('download-metatrader') + '" style="margin:0 20px;">' +
                     '<span>' + text.localize('Download MetaTrader') + '</span></a>')
         ));
         $('#details-' + accType).html($details.html());
@@ -28102,6 +26643,13 @@ var BinarySocket = new BinarySocketClass();
                 }
 
                 if($('#accordion').hasClass(hiddenClass)) {
+                    $(function() {
+                        $( "#accordion" ).accordion({
+                          heightStyle: "content",
+                          collapsible: true,
+                          active: false
+                        });
+                    });
                     $('#accordion').removeClass(hiddenClass).accordion({
                         heightStyle : 'content',
                         collapsible : true,
@@ -28224,7 +26772,7 @@ var BinarySocket = new BinarySocketClass();
                             passwordMeter();
                         }
                         $form.removeClass(hiddenClass);
-                    }   
+                    }
                 }
             }
         }
@@ -28452,6 +27000,116 @@ var BinarySocket = new BinarySocketClass();
         responseLandingCompany : responseLandingCompany,
     };
 }());
+
+;var TNCApproval = (function() {
+    "use strict";
+
+    var terms_conditions_version,
+        client_tnc_status,
+        hiddenClass,
+        redirectUrl,
+        isReal;
+
+
+    var init = function() {
+        hiddenClass = 'invisible';
+        showLoadingImage($('#tnc-loading'));
+
+        redirectUrl = sessionStorage.getItem('tnc_redirect');
+        sessionStorage.removeItem('tnc_redirect');
+
+        BinarySocket.send({"get_settings"   : "1"});
+        BinarySocket.send({"website_status" : "1"});
+
+        $('#btn-accept').click(function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            BinarySocket.send({"tnc_approval" : "1"});
+        });
+    };
+
+    var showTNC = function() {
+        if(!terms_conditions_version || !client_tnc_status) {
+            return;
+        }
+
+        if(terms_conditions_version === client_tnc_status) {
+            redirectBack();
+            return;
+        }
+
+        $('#tnc-loading').addClass(hiddenClass);
+        $('#tnc_image').attr('src', page.url.url_for_static('images/pages/cashier/protection-icon.svg'));
+        $('#tnc_approval').removeClass(hiddenClass);
+        var tnc_message = template($('#tnc-message').html(), [
+            page.client.get_storage_value('landing_company_name'),
+            'https://www.binary.com/en/terms-and-conditions.html'
+        ]);
+        $('#tnc-message').html(tnc_message).removeClass(hiddenClass);
+        $('#btn-accept').text(text.localize('OK'));
+    };
+
+    var responseTNCApproval = function(response) {
+        if(!response.hasOwnProperty('error')) {
+            redirectBack();
+        }
+        else {
+            $('#err_message').html(response.error.message).removeClass(hiddenClass);
+        }
+    };
+
+    var redirectBack = function() {
+        window.location.href = redirectUrl || page.url.default_redirect_url();
+    };
+
+    var apiResponse = function(response) {
+        isReal = !TUser.get().is_virtual;
+        if(!isReal) {
+            redirectBack();
+        }
+
+        switch(response.msg_type) {
+            case 'website_status':
+                terms_conditions_version = response.website_status.terms_conditions_version;
+                showTNC();
+                break;
+            case 'get_settings':
+                client_tnc_status = response.get_settings.client_tnc_status || '-';
+                showTNC();
+                break;
+            case 'tnc_approval':
+                responseTNCApproval(response);
+                break;
+            default:
+                break;
+        }
+    };
+
+    return {
+        init : init,
+        apiResponse : apiResponse
+    };
+}());
+
+
+
+pjax_config_page_require_auth("tnc_approvalws", function() {
+    return {
+        onLoad: function() {
+            BinarySocket.init({
+                onmessage: function(msg) {
+                    var response = JSON.parse(msg.data);
+                    if (response) {
+                        TNCApproval.apiResponse(response);
+                    }
+                }
+            });
+
+            Content.populate();
+            TNCApproval.init();
+        }
+    };
+});
 
 ;function submit_email() {
     Content.populate();
