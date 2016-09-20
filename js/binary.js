@@ -16045,7 +16045,10 @@ var GTM = (function() {
     "use strict";
 
     var gtm_applicable = function() {
-        return (!/binary\-mt/.test(window.location.href));
+        // return (!/binary\-mt/.test(window.location.href));
+        // line above to be uncommented when gtm is added here
+        // line below to be removed along with these comments
+        return false;
     };
 
     var gtm_data_layer_info = function(data) {
@@ -16254,7 +16257,7 @@ var URL = function (url) { // jshint ignore:line
 };
 
 URL.prototype = {
-    url_for: function(path, params) {
+    url_for: function(path, params, isMainSite) {
         if(!path) {
             path = '';
         }
@@ -16263,7 +16266,7 @@ URL.prototype = {
         }
         var lang = page.language().toLowerCase(),
             url  = window.location.href;
-        return url.substring(0, url.indexOf('/' + lang + '/') + lang.length + 2) + (path || 'home') + '.html' + (params ? '?' + params : '');
+        return (isMainSite ? 'https://www.binary.com/' + lang + '/' : url.substring(0, url.indexOf('/' + lang + '/') + lang.length + 2)) + (path || 'home') + '.html' + (params ? '?' + params : '');
     },
     url_for_static: function(path) {
         if(!path) {
@@ -16346,7 +16349,7 @@ URL.prototype = {
         return params;
     },
     default_redirect_url: function() {
-        return 'user/settings/metatrader';
+        return this.url_for('user/settings/metatrader');
     },
 };
 
@@ -16457,9 +16460,7 @@ Header.prototype = {
         }
     },
     register_dynamic_links: function() {
-        var logged_in_url = this.client.is_logged_in ?
-            page.url.url_for('user/settings/metatrader') :
-            page.url.url_for('');
+        var logged_in_url = page.url.url_for(this.client.is_logged_in ? 'user/settings/metatrader' : '');
 
         $('#logo').attr('href', logged_in_url).on('click', function(event) {
             event.preventDefault();
@@ -17365,8 +17366,16 @@ for (var key in texts_json) {
             textMessageMinRequired: text.localize('Minimum of [_1] characters required.'),
             textFeatureUnavailable: text.localize('Sorry, this feature is not available.'),
             textMessagePasswordScore: text.localize( 'Password score is: [_1]. Passing score is: 20.'),
+            textPasswordsNotMatching: text.localize('The two passwords that you entered do not match.'),
             textShouldNotLessThan: text.localize('Please enter a number greater or equal to [_1].'),
-            textNumberLimit: text.localize('Please enter a number between [_1].')       // [_1] should be a range
+            textNumberLimit: text.localize('Please enter a number between [_1].'),       // [_1] should be a range
+            textLetters: text.localize('letters'),
+            textNumbers: text.localize('numbers'),
+            textSpace:   text.localize('space'),
+            textPeriod:  text.localize('period'),
+            textComma:   text.localize('comma'),
+            textHyphen:  text.localize('hyphen'),
+            textApost:   text.localize('apostrophe'),
         };
     };
 
@@ -17441,6 +17450,19 @@ if (typeof module !== 'undefined') {
     module.exports = {
         format_money: format_money,
     };
+}
+
+;function onlyNumericOnKeypress(ev) {
+    var key = ev.keyCode;
+    var char = String.fromCharCode(ev.which);
+    if(
+        (char === '.' && ev.target.value.indexOf(char) >= 0) ||
+        (!/[0-9\.]/.test(char) && [8, 37, 39, 46].indexOf(key) < 0) || // delete, backspace, arrow keys
+        /['%]/.test(char)) { // similarity to arrows key code in some browsers
+
+        ev.returnValue = false;
+        ev.preventDefault();
+    }
 }
 
 ;// returns true if internet explorer browser
@@ -17717,6 +17739,15 @@ function testPassword(passwd)
         exclusionResponseHandler: exclusionResponseHandler,
     };
 }());
+
+;pjax_config_page("/home", function() {
+    return {
+        onLoad: function() {
+            $('#btn_sign_in').attr('href', Login.login_url());
+            $('.link-to-binary-home').attr('href', page.url.url_for('home', '', true));
+        }
+    };
+});
 
 ;pjax_config_page("endpoint", function(){
     return {
@@ -18012,7 +18043,7 @@ var BinarySocket = new BinarySocketClass();
         if (!errMsg) {
             if (name.length < 2 || name.length > 30) {
                 errMsg = Content.errorMessage('range', '2-30');
-            } else if (!/^[a-zA-Z\s-.']+$/.test(name)) {
+            } else if (/[`~!@#$%^&*)(_=+\[}{\]\\\/";:\?><,|\d]+/.test(name)) {
                 var letters = Content.localize().textLetters,
                     space   = Content.localize().textSpace,
                     hyphen  = Content.localize().textHyphen,
@@ -18148,6 +18179,8 @@ var BinarySocket = new BinarySocketClass();
         $form,
         isValid,
         isAuthenticated,
+        hasGamingCompany,
+        hasFinancialCompany,
         currency,
         highlightBalance,
         mt5Logins,
@@ -18162,7 +18195,7 @@ var BinarySocket = new BinarySocketClass();
         hiddenClass = 'invisible';
         errorClass  = 'errorfield';
         currency    = 'USD';
-        mt5Logins   = [];
+        mt5Logins   = {};
         mt5Accounts = {};
         highlightBalance = false;
 
@@ -18172,6 +18205,17 @@ var BinarySocket = new BinarySocketClass();
     };
 
     var initOk = function() {
+        findInSection('demo', '.form-new-account').contents().clone().appendTo('#section-financial .form-new-account');
+        if(hasGamingCompany) {
+            $('#section-financial').contents().clone().appendTo('#section-gaming');
+            $('#section-gaming > h3').text($('#nav-gaming a').text());
+        } else {
+            hideAccount('gaming');
+        }
+        if(!hasFinancialCompany) {
+            hideAccount('financial');
+        }
+
         MetaTraderData.requestLoginList();
 
         // Tab
@@ -18189,109 +18233,121 @@ var BinarySocket = new BinarySocketClass();
     };
 
     var displayAccount = function(accType) {
-        $('#form-new-' + accType).addClass(hiddenClass);
+        findInSection(accType, '.form-new-account').addClass(hiddenClass);
         var $details = $('<div/>').append($(
             makeTextRow('Login', mt5Accounts[accType].login) +
-            makeTextRow('Balance', currency + ' ' + mt5Accounts[accType].balance, 'balance-' + accType) +
+            makeTextRow('Balance', currency + ' ' + mt5Accounts[accType].balance, 'balance') +
             makeTextRow('Name', mt5Accounts[accType].name) +
             // makeTextRow('Leverage', mt5Accounts[accType].leverage)
-            makeTextRow('', text.localize('Start trading with your ' + (accType === 'demo' ? 'Demo' : 'Real') + ' Account') +
+            makeTextRow('', text.localize('Start trading with your MetaTrader Account') +
                 ' <a class="button pjaxload" href="' + page.url.url_for('download-metatrader') + '" style="margin:0 20px;">' +
                     '<span>' + text.localize('Download MetaTrader') + '</span></a>')
         ));
-        $('#details-' + accType).html($details.html());
+        findInSection(accType, '.account-details').html($details.html());
 
-        // display deposit form
-        if(accType === 'real') {
-            $('#msg-cannot-create-real, #authenticate').addClass(hiddenClass);
+        // display deposit/withdrawal form
+        var $accordion = findInSection(accType, '.accordion');
+        if(/financial|gaming/.test(accType)) {
+            findInSection(accType, '.msg-account, .authenticate').addClass(hiddenClass);
             if(page.client.is_virtual()) {
-                $('#accordion').addClass(hiddenClass);
-                $('#msg-switch-to-deposit').removeClass(hiddenClass);
+                $accordion.addClass(hiddenClass);
+                $('.msg-switch-to-deposit').removeClass(hiddenClass);
             } else {
-                $('#msg-switch-to-deposit').addClass(hiddenClass);
-                ['#form-deposit-real', '#form-withdrawal-real'].map(function(formID){
-                    $form = $(formID);
+                $('.msg-switch-to-deposit').addClass(hiddenClass);
+                ['.form-deposit', '.form-withdrawal'].map(function(formClass){
+                    $form = findInSection(accType, formClass);
                     $form.find('.binary-login').text(page.client.loginid);
                     $form.find('.mt-login').text(mt5Accounts[accType].login);
-                    $form.find('#txtAmount').unbind('keypress').keypress(onlyNumericOnKeypress);
+                    $form.find('.txtAmount').unbind('keypress').keypress(onlyNumericOnKeypress);
                     $form.find('button').unbind('click').click(function(e) {
                         e.preventDefault();
                         e.stopPropagation();
-                        if(/deposit/.test(formID)) {
-                            depositToMTAccount();
+                        if(/deposit/.test(formClass)) {
+                            depositToMTAccount(accType);
                         } else {
-                            withdrawFromMTAccount();
+                            withdrawFromMTAccount(accType);
                         }
                     });
                 });
 
                 if(highlightBalance) {
-                    $('#balance-real').addClass('notice-msg').delay(5000).queue(function(){$(this).removeClass('notice-msg');});
+                    findInSection(accType, '.balance').addClass('notice-msg').delay(5000).queue(function(){$(this).removeClass('notice-msg');});
                     highlightBalance = false;
                 }
 
-                if($('#accordion').hasClass(hiddenClass)) {
+                if($accordion.hasClass(hiddenClass)) {
                     $(function() {
-                        $( "#accordion" ).accordion({
-                          heightStyle: "content",
-                          collapsible: true,
-                          active: false
+                        $accordion.removeClass(hiddenClass).accordion({
+                            heightStyle : 'content',
+                            collapsible : true,
+                            active      : false
                         });
-                    });
-                    $('#accordion').removeClass(hiddenClass).accordion({
-                        heightStyle : 'content',
-                        collapsible : true,
-                        active      : false
                     });
                 }
             }
         }
     };
 
-    var makeTextRow = function(label, value, id) {
-        return '<div' + (id ? ' id="' + id + '"' : '') + ' class="gr-row gr-padding-10">' +
+    var hideAccount = function(accType) {
+        $('#nav-' + accType + ', #section-' + accType).remove();
+    };
+
+    var makeTextRow = function(label, value, className) {
+        return '<div class="gr-row gr-padding-10 ' + (className || '') + '">' +
             (label ? '<div class="gr-4">' + text.localize(label) + '</div>' : '') +
             '<div class="gr-' + (label ? '8' : '12') + '">' + value + '</div></div>';
     };
 
-    var createNewAccount = function() {
+    var getAccountType = function(group) {
+        var typeMap = {
+            'virtual'  : 'demo',
+            'vanuatu'  : 'financial',
+            'costarica': 'gaming'
+        };
+        return group ? (typeMap[group.split('\\')[1]] || '') : '';
+    };
+
+    var findInSection = function(accType, selector) {
+        return $('#section-' + accType).find(selector);
+    };
+
+    var createNewAccount = function(accType) {
         if(formValidate()) {
-            var isDemo = /demo/.test($form.attr('id'));
             MetaTraderData.requestSend({
                 'mt5_new_account' : 1,
-                'account_type'    : isDemo ? 'demo' : 'vanuatu',
+                'account_type'    : accType,
                 'email'           : TUser.get().email,
-                'name'            : isDemo ? $form.find('#txtName').val() : TUser.get().fullname,
-                'mainPassword'    : $form.find('#txtMainPass').val(),
-                'investPassword'  : $form.find('#txtInvestPass').val(),
-                'leverage'        : '100' // $form.find('#ddlLeverage').val()
+                'name'            : /demo/.test(accType) ? $form.find('.txtName').val() : TUser.get().fullname,
+                'mainPassword'    : $form.find('.txtMainPass').val(),
+                'investPassword'  : $form.find('.txtInvestPass').val(),
+                'leverage'        : '100' // $form.find('.ddlLeverage').val()
             });
         }
     };
 
-    var depositToMTAccount = function() {
-        $form = $('#form-deposit-real');
+    var depositToMTAccount = function(accType) {
+        $form = findInSection(accType, '.form-deposit');
         if(formValidate('deposit')) {
             MetaTraderData.requestSend({
                 'mt5_deposit' : 1,
                 'from_binary' : page.client.loginid,
-                'to_mt5'      : mt5Accounts.real.login,
-                'amount'      : $form.find('#txtAmount').val()
+                'to_mt5'      : mt5Accounts[accType].login,
+                'amount'      : $form.find('.txtAmount').val()
             });
         }
     };
 
-    var withdrawFromMTAccount = function(isPasswordChecked) {
-        $form = $('#form-withdrawal-real');
+    var withdrawFromMTAccount = function(accType, isPasswordChecked) {
+        $form = findInSection(accType, '.form-withdrawal');
         if(formValidate('withdrawal')) {
             if(!isPasswordChecked) {
-                MetaTraderData.requestPasswordCheck(mt5Accounts.real.login, $form.find('#txtMainPass').val());
+                MetaTraderData.requestPasswordCheck(mt5Accounts[accType].login, $form.find('.txtMainPass').val());
             } else {
                 MetaTraderData.requestSend({
                     'mt5_withdrawal' : 1,
-                    'from_mt5'       : mt5Accounts.real.login,
+                    'from_mt5'       : mt5Accounts[accType].login,
                     'to_binary'      : page.client.loginid,
-                    'amount'         : $form.find('#txtAmount').val()
+                    'amount'         : $form.find('.txtAmount').val()
                 });
             }
         }
@@ -18302,10 +18358,13 @@ var BinarySocket = new BinarySocketClass();
     // --------------------------
     var displayTab = function(tab) {
         if(!tab) {
-            tab = page.url.location.hash.substring(1);
-            if(!tab || !/demo|real|howto/.test(tab)) {
+            tab = (page.url.location.hash.substring(1) || '').toLowerCase();
+            if(!tab || !/demo|financial|gaming/.test(tab)) {
                 tab = 'demo';
             }
+        }
+        if((/financial/.test(tab) && !hasFinancialCompany) || (/gaming/.test(tab) && !hasGamingCompany)) {
+            tab = 'demo';
         }
 
         // url
@@ -18318,25 +18377,24 @@ var BinarySocket = new BinarySocketClass();
         // section
         $('.section').addClass(hiddenClass);
         $('#section-' + tab).removeClass(hiddenClass);
-        if(/demo|real/.test(tab)) {
+        if(/demo|financial|gaming/.test(tab)) {
             manageTabContents();
         }
     };
 
     var manageTabContents = function() {
         var accType = $('.sidebar-nav li.selected').attr('id').split('-')[1];
-        var hasMTDemo = mt5Accounts.hasOwnProperty('demo'),
-            hasMTReal = mt5Accounts.hasOwnProperty('real');
+        var hasMTDemo = mt5Accounts.hasOwnProperty('demo');
 
         if(/demo/.test(accType)) {
             if(!hasMTDemo) {
-                $form = $('#form-new-demo');
+                $form = findInSection(accType, '.form-new-account');
                 $form.removeClass(hiddenClass);
-                $form.find('#name-row').removeClass(hiddenClass);
+                $form.find('.name-row').removeClass(hiddenClass);
                 passwordMeter();
             }
-        } else if(/real/.test(accType)) {
-            if(!hasMTReal) {
+        } else if(/financial|gaming/.test(accType)) {
+            if(!mt5Accounts.hasOwnProperty(accType)) {
                 if(page.client.is_virtual()) {
                     // check if this client has real binary account
                     var hasRealBinaryAccount = false;
@@ -18344,32 +18402,29 @@ var BinarySocket = new BinarySocketClass();
                         if(loginInfo.real) hasRealBinaryAccount = true;
                     });
 
-                    $('#msg-cannot-create-real').html(hasRealBinaryAccount ?
+                    findInSection(accType, '.msg-account').html(hasRealBinaryAccount ?
                         text.localize('To create a real account for MetaTrader, switch to your [_1] real money account.', ['Binary.com']) :
-                        text.localize('To create a real account for MetaTrader, <a href="[_1]">upgrade to [_2] real money account</a>.', [page.url.url_for('new_account/realws'), 'Binary.com'])
+                        text.localize('To create a real account for MetaTrader, <a href="[_1]">upgrade to [_2] real money account</a>.', [page.url.url_for('new_account/realws', '', true), 'Binary.com'])
                     ).removeClass(hiddenClass);
                 } else {
-                    if(!isAuthenticated && !page.client.is_virtual()) {
+                    if(!isAuthenticated) {
                         MetaTraderData.requestAccountStatus();
                     } else {
-                        $form = $('#form-new-real');
-                        if($form.contents().length === 0) {
-                            $('#form-new-demo').contents().clone().appendTo('#form-new-real');
-                            $form.find('.account-type').text(text.localize('Real'));
-                            $form.find('#name-row').addClass(hiddenClass);
-                            passwordMeter();
-                        }
+                        $form = findInSection(accType, '.form-new-account');
+                        $form.find('.account-type').text(text.localize(accType.charAt(0).toUpperCase() + accType.slice(1)));
+                        $form.find('.name-row').remove();
+                        passwordMeter();
                         $form.removeClass(hiddenClass);
                     }
                 }
             }
         }
 
-        if($form && /new/.test($form.attr('id'))) {
+        if($form && /new/.test($form.attr('class'))) {
             $form.find('button').unbind('click').click(function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                createNewAccount();
+                createNewAccount(accType);
             });
         }
     };
@@ -18383,7 +18438,9 @@ var BinarySocket = new BinarySocketClass();
         }
 
         var lc = response.landing_company;
-        if (lc.hasOwnProperty('financial_company') && lc.financial_company.shortcode === 'costarica') {
+        hasFinancialCompany = lc.hasOwnProperty('mt_financial_company') && lc.mt_financial_company.shortcode === 'vanuatu';
+        hasGamingCompany    = lc.hasOwnProperty('mt_gaming_company')    && lc.mt_gaming_company.shortcode    === 'costarica';
+        if (lc.hasOwnProperty('financial_company') && lc.financial_company.shortcode === 'costarica' && (hasFinancialCompany || hasGamingCompany)) {
             initOk();
         } else {
             notEligible();
@@ -18399,8 +18456,8 @@ var BinarySocket = new BinarySocketClass();
             isAuthenticated = true;
             manageTabContents();
         } else if(!page.client.is_virtual()) {
-            $('#authenticate a').attr('href', 'https://www.binary.com/' + (page.language().toLowerCase() || 'en') + '/user/authenticatews.html');
-            $('#authenticate').removeClass(hiddenClass);
+            $('.authenticate a').attr('href', page.url.url_for('/user/authenticatews', '', true));
+            $('.authenticate').removeClass(hiddenClass);
         }
     };
 
@@ -18409,12 +18466,16 @@ var BinarySocket = new BinarySocketClass();
             return showPageError(response.error.message, false);
         }
 
-        mt5Logins = [];
+        mt5Logins   = {};
         mt5Accounts = {};
         if(response.mt5_login_list && response.mt5_login_list.length > 0) {
             response.mt5_login_list.map(function(obj) {
-                mt5Logins.push(obj.login);
-                MetaTraderData.requestLoginDetails(obj.login);
+                var accType = getAccountType(obj.group);
+                if(accType) { // ignore old accounts which are not linked to any group
+                    mt5Logins[obj.login] = accType;
+                    mt5Accounts[accType] = {login: obj.login};
+                    MetaTraderData.requestLoginDetails(obj.login);
+                }
             });
         } else {
             displayTab();
@@ -18423,10 +18484,10 @@ var BinarySocket = new BinarySocketClass();
 
     var responseLoginDetails = function(response) {
         if(response.hasOwnProperty('error')) {
-            return showPageError(response.error.message, false);
+            return showAccountMessage(mt5Logins[response.echo_req.login], response.error.message);
         }
 
-        var accType = /^demo/.test(response.mt5_get_settings.group) ? 'demo' : 'real';
+        var accType = getAccountType(response.mt5_get_settings.group);
         mt5Accounts[accType] = response.mt5_get_settings;
         displayTab();
         displayAccount(accType);
@@ -18438,19 +18499,18 @@ var BinarySocket = new BinarySocketClass();
         }
 
         MetaTraderData.requestLoginDetails(response.mt5_new_account.login);
-        $('#msg-new-account-' + (/demo/.test(response.mt5_new_account.account_type) ? 'demo' : 'real'))
-            .html(text.localize('Congratulations! Your account has been created.')).removeClass(hiddenClass);
+        showAccountMessage(response.mt5_new_account.account_type, text.localize('Congratulations! Your account has been created.'));
     };
 
     var responseDeposit = function(response) {
-        $form = $('#form-deposit-real');
+        $form = findInSection(mt5Logins[response.echo_req.to_mt5], '.form-deposit');
         if(response.hasOwnProperty('error')) {
             return showFormMessage(response.error.message, false);
         }
 
         if(+response.mt5_deposit === 1) {
-            $form.find('#txtAmount').val('');
-            showFormMessage(text.localize('Deposit is done. Transaction ID:') + ' ' + response.binary_transaction_id, true);
+            $form.find('.txtAmount').val('');
+            showFormMessage(text.localize('Deposit is done. Transaction ID: [_1]', [response.binary_transaction_id]), true);
             highlightBalance = true;
             MetaTraderData.requestLoginDetails(response.echo_req.to_mt5);
         } else {
@@ -18459,14 +18519,14 @@ var BinarySocket = new BinarySocketClass();
     };
 
     var responseWithdrawal = function(response) {
-        $form = $('#form-withdrawal-real');
+        $form = findInSection(mt5Logins[response.echo_req.from_mt5], '.form-withdrawal');
         if(response.hasOwnProperty('error')) {
             return showFormMessage(response.error.message, false);
         }
 
         if(+response.mt5_withdrawal === 1) {
-            $form.find('#txtAmount').val('');
-            showFormMessage(text.localize('Withdrawal is done. Transaction ID:') + ' ' + response.binary_transaction_id, true);
+            $form.find('.txtAmount').val('');
+            showFormMessage(text.localize('Withdrawal is done. Transaction ID: [_1]', [response.binary_transaction_id]), true);
             highlightBalance = true;
             MetaTraderData.requestLoginDetails(response.echo_req.from_mt5);
         } else {
@@ -18475,13 +18535,14 @@ var BinarySocket = new BinarySocketClass();
     };
 
     var responsePasswordCheck = function(response) {
-        $form = $('#form-withdrawal-real');
+        var accType = mt5Logins[response.echo_req.login];
+        $form = findInSection(accType, '.form-withdrawal');
         if(response.hasOwnProperty('error')) {
-            return showError('#txtMainPass', response.error.message);
+            return showError('.txtMainPass', response.error.message);
         }
 
         if(+response.mt5_password_check === 1) {
-            withdrawFromMTAccount(true);
+            withdrawFromMTAccount(accType, true);
         }
     };
 
@@ -18495,7 +18556,7 @@ var BinarySocket = new BinarySocketClass();
         }
 
         if($form.find('meter').length !== 0) {
-            $form.find('.password').on('input', function() {
+            $form.find('.password').unbind('input').on('input', function() {
                 $form.find('.password-meter').attr('value', testPassword($form.find('.password').val())[0]);
             });
         }
@@ -18506,24 +18567,24 @@ var BinarySocket = new BinarySocketClass();
         isValid = true;
 
         if(formName === 'deposit') { // deposit form
-            var errMsgDeposit = MetaTrader.validateAmount($form.find('#txtAmount').val());
+            var errMsgDeposit = MetaTrader.validateAmount($form.find('.txtAmount').val());
             if(errMsgDeposit) {
-                showError('#txtAmount', errMsgDeposit);
+                showError('.txtAmount', errMsgDeposit);
                 isValid = false;
             }
         } else if(formName === 'withdrawal') { // withdrawal form
-            var errMsgPass = MetaTrader.validateRequired($form.find('#txtMainPass').val());
+            var errMsgPass = MetaTrader.validateRequired($form.find('.txtMainPass').val());
             if(errMsgPass) {
-                showError('#txtMainPass', errMsgPass);
+                showError('.txtMainPass', errMsgPass);
                 isValid = false;
             }
-            var errMsgWithdrawal = MetaTrader.validateAmount($form.find('#txtAmount').val());
+            var errMsgWithdrawal = MetaTrader.validateAmount($form.find('.txtAmount').val());
             if(errMsgWithdrawal) {
-                showError('#txtAmount', errMsgWithdrawal);
+                showError('.txtAmount', errMsgWithdrawal);
                 isValid = false;
             }
         } else { // create new account form
-            var passwords = ['#txtMainPass', '#txtMainPass2', '#txtInvestPass'];
+            var passwords = ['.txtMainPass', '.txtInvestPass'];
             passwords.map(function(elmID){
                 var errMsg = MetaTrader.validatePassword($form.find(elmID).val());
                 if(errMsg) {
@@ -18531,15 +18592,21 @@ var BinarySocket = new BinarySocketClass();
                     isValid = false;
                 }
             });
-            if($form.find('#txtMainPass').val() !== $form.find('#txtMainPass2').val()) {
-                showError('#txtMainPass2', Content.localize().textPasswordsNotMatching);
+            var valuePass2 = $form.find('.txtMainPass2').val(),
+                errMsgPass2 = MetaTrader.validateRequired(valuePass2);
+            if(errMsgPass2) {
+                showError('.txtMainPass2', errMsgPass2);
+                isValid = false;
+            } else if($form.find('.txtMainPass').val() !== valuePass2) {
+                showError('.txtMainPass2', Content.localize().textPasswordsNotMatching);
                 isValid = false;
             }
             // name
-            if(/demo/.test($form.attr('id'))) {
-                var errMsgName = MetaTrader.validateName($form.find('#txtName').val());
+            var $nameRow = $form.find('.name-row');
+            if($nameRow.length && !$nameRow.hasClass(hiddenClass)) {
+                var errMsgName = MetaTrader.validateName($form.find('.txtName').val());
                 if(errMsgName) {
-                    showError('#txtName', errMsgName);
+                    showError('.txtName', errMsgName);
                     isValid = false;
                 }
             }
@@ -18556,14 +18623,14 @@ var BinarySocket = new BinarySocketClass();
     var clearError = function(selector) {
         $(selector ? selector : 'p.' + errorClass).remove();
         $('#errorMsg').html('').addClass(hiddenClass);
-        $form.find('#formMessage').html('');
-        $('#msg-new-account-demo, #msg-new-account-real').addClass(hiddenClass);
+        $form.find('.formMessage').html('');
+        $('.msg-account').addClass(hiddenClass);
     };
 
     var showFormMessage = function(msg, isSuccess) {
-        var $elmID = $form.find('#formMessage');
+        var $elmID = $form.find('.formMessage');
         $elmID
-            .attr('class', isSuccess ? 'success-msg' : errorClass)
+            .attr('class', (isSuccess ? 'success-msg' : errorClass) + ' formMessage')
             .html(isSuccess ? '<ul class="checked"><li>' + text.localize(msg) + '</li></ul>' : text.localize(msg))
             .css('display', 'block')
             .delay(5000)
@@ -18575,6 +18642,10 @@ var BinarySocket = new BinarySocketClass();
         if(hideForm) {
             $form.addClass(hiddenClass);
         }
+    };
+
+    var showAccountMessage = function(accType, message) {
+        findInSection(accType, '.msg-account').html(message).removeClass(hiddenClass);
     };
 
     return {
@@ -18632,7 +18703,7 @@ var BinarySocket = new BinarySocketClass();
         $('#tnc_approval').removeClass(hiddenClass);
         var tnc_message = template($('#tnc-message').html(), [
             page.client.get_storage_value('landing_company_name'),
-            'https://www.binary.com/' + (page.language().toLowerCase() || 'en') + '/terms-and-conditions.html'
+            page.url.url_for('/terms-and-conditions', '', true)
         ]);
         $('#tnc-message').html(tnc_message).removeClass(hiddenClass);
         $('#btn-accept').text(text.localize('OK'));
